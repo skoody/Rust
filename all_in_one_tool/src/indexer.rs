@@ -10,6 +10,7 @@ use walkdir::WalkDir;
 use id3::TagLike;
 use mp4ameta;
 use exif;
+use png;
 
 pub fn index_directory(path: &PathBuf, db: &mut Database) -> Result<()> {
     let tx = db.transaction()?;
@@ -25,7 +26,8 @@ pub fn index_directory(path: &PathBuf, db: &mut Database) -> Result<()> {
             let specific_metadata =
                 if let Some(ext) = file_path.extension().and_then(|s| s.to_str()) {
                     match ext.to_lowercase().as_str() {
-                        "jpg" | "jpeg" | "png" => extract_image_metadata(file_path).ok(),
+                        "jpg" | "jpeg" => extract_exif_metadata(file_path).ok(),
+                        "png" => extract_png_metadata(file_path).ok(),
                         "mp3" => extract_mp3_metadata(file_path).ok(),
                         "flac" => extract_flac_metadata(file_path).ok(),
                         "mp4" => extract_mp4_metadata(file_path).ok(),
@@ -51,6 +53,44 @@ pub fn index_directory(path: &PathBuf, db: &mut Database) -> Result<()> {
     Ok(())
 }
 
+use png::Decoded;
+use std::io::Read;
+
+fn extract_png_metadata(path: &Path) -> Result<SpecificMetadata> {
+    let mut file = File::open(path)?;
+    let mut buffer = Vec::new();
+    file.read_to_end(&mut buffer)?;
+
+    let mut decoder = png::StreamingDecoder::new();
+    let mut chunks = BTreeMap::new();
+    let mut data = Vec::new(); // Dummy vec for image data
+
+    let mut offset = 0;
+    while offset < buffer.len() {
+        let (consumed, result) = decoder.update(&buffer[offset..], &mut data)?;
+        offset += consumed;
+        match result {
+            Decoded::ChunkBegin(len, chunk_type) => {
+                let key = std::str::from_utf8(&chunk_type.0)?.to_string();
+                let value = format!("{} bytes", len);
+                chunks.insert(key, value);
+            }
+            Decoded::ChunkComplete(_, chunk_type) => {
+                if chunk_type.0 == *b"IEND" {
+                    break;
+                }
+            }
+            Decoded::ImageEnd => break,
+            _ => (),
+        }
+    }
+
+    Ok(SpecificMetadata::Image {
+        exif: BTreeMap::new(), // No EXIF data for PNGs in this context
+        png_chunks: Some(chunks),
+    })
+}
+
 fn extract_mp4_metadata(path: &Path) -> Result<SpecificMetadata> {
     let tag = mp4ameta::Tag::read_from_path(path)?;
 
@@ -68,20 +108,23 @@ fn extract_mp4_metadata(path: &Path) -> Result<SpecificMetadata> {
     })
 }
 
-fn extract_image_metadata(path: &Path) -> Result<SpecificMetadata> {
+fn extract_exif_metadata(path: &Path) -> Result<SpecificMetadata> {
     let file = File::open(path)?;
     let mut buf_reader = BufReader::new(file);
-    let exif = exif::Reader::new().read_from_container(&mut buf_reader)?;
+    let exif_data = exif::Reader::new().read_from_container(&mut buf_reader)?;
 
     let mut exif_map = BTreeMap::new();
-    for f in exif.fields() {
+    for f in exif_data.fields() {
         exif_map.insert(
             f.tag.to_string(),
-            f.display_value().with_unit(&exif).to_string(),
+            f.display_value().with_unit(&exif_data).to_string(),
         );
     }
 
-    Ok(SpecificMetadata::Image { exif: exif_map })
+    Ok(SpecificMetadata::Image {
+        exif: exif_map,
+        png_chunks: None,
+    })
 }
 
 fn extract_mp3_metadata(path: &Path) -> Result<SpecificMetadata> {
