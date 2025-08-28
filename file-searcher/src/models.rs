@@ -1,0 +1,34 @@
+use serde::Serialize;
+use std::collections::BTreeMap;
+
+#[derive(Serialize, Debug)]
+pub struct FileMetadata {
+    pub path: String,
+    pub size: u64,
+    #[serde(with = "humantime_serde")]
+    pub modified: std::time::SystemTime,
+    #[serde(flatten)]
+    pub specific: Option<SpecificMetadata>,
+}
+
+#[derive(Serialize, Debug)]
+#[serde(tag = "media_type")]
+pub enum SpecificMetadata {
+    Image {
+        exif: BTreeMap<String, String>,
+    },
+    Audio {
+        artist: Option<String>,
+        album: Option<String>,
+        title: Option<String>,
+        year: Option<i32>,
+        extended_tags: BTreeMap<String, Vec<String>>,
+    },
+    Video {
+        artist: Option<String>,
+        album: Option<String>,
+        title: Option<String>,
+        year: Option<i32>,
+        extended_tags: BTreeMap<String, Vec<String>>,
+    },
+}
