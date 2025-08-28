@@ -16,6 +16,7 @@ pub struct FileMetadata {
 pub enum SpecificMetadata {
     Image {
         exif: BTreeMap<String, String>,
+        png_chunks: Option<BTreeMap<String, String>>,
     },
     Audio {
         artist: Option<String>,
