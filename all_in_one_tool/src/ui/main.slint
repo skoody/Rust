@@ -12,6 +12,7 @@ export component AppWindow inherits Window {
     callback select_directory();
     callback search(string);
     callback file_selected(int);
+    callback export_results();
 
 
     title: "File Searcher";
@@ -26,6 +27,7 @@ export component AppWindow inherits Window {
             spacing: 5px;
             Button { text: "Select Directory..."; clicked => { select_directory(); } }
             search_input := LineEdit { placeholder-text: "Search..."; edited(text) => { search(text); } }
+            Button { text: "Export..."; clicked => { export_results(); } }
         }
 
        search_list_view := ListView {
