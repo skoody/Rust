@@ -24,18 +24,35 @@ impl Database {
         Ok(DbTransaction { tx })
     }
 
-    pub fn search_metadata(&self, query: &str) -> Result<Vec<String>> {
+    pub fn search_metadata(&self, query: &str) -> Result<Vec<FileMetadata>> {
         let mut stmt = self.conn.prepare(
-            "SELECT path FROM files WHERE metadata LIKE ?",
+            "SELECT metadata FROM files WHERE metadata LIKE ?",
         )?;
         let mut rows = stmt.query([format!("%{}%", query)])?;
 
         let mut results = Vec::new();
         while let Some(row) = rows.next()? {
-            results.push(row.get(0)?);
+            let metadata_json: String = row.get(0)?;
+            let metadata: FileMetadata = serde_json::from_str(&metadata_json)?;
+            results.push(metadata);
         }
 
         Ok(results)
+    }
+
+    pub fn get_metadata_by_path(&self, path: &str) -> Result<FileMetadata> {
+        let mut stmt = self.conn.prepare(
+            "SELECT metadata FROM files WHERE path = ?",
+        )?;
+        let mut rows = stmt.query([path])?;
+
+        if let Some(row) = rows.next()? {
+            let metadata_json: String = row.get(0)?;
+            let metadata: FileMetadata = serde_json::from_str(&metadata_json)?;
+            Ok(metadata)
+        } else {
+            Err(anyhow::anyhow!("File not found in database"))
+        }
     }
 }
 

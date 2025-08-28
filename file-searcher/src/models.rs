@@ -1,7 +1,7 @@
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::collections::BTreeMap;
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct FileMetadata {
     pub path: String,
     pub size: u64,
@@ -11,7 +11,7 @@ pub struct FileMetadata {
     pub specific: Option<SpecificMetadata>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "media_type")]
 pub enum SpecificMetadata {
     Image {

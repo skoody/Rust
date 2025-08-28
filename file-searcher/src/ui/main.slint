@@ -1,0 +1,49 @@
+import { Button, ListView, LineEdit } from "std-widgets.slint";
+
+export struct FileInfo {
+    path: string,
+    size: string,
+}
+
+export component AppWindow inherits Window {
+    in-out property <[FileInfo]> search_results;
+    in-out property <string> selected_file_details;
+
+    callback select_directory();
+    callback search(string);
+    callback file_selected(int);
+
+
+    title: "File Searcher";
+    width: 800px;
+    height: 600px;
+
+    VerticalLayout {
+        padding: 5px;
+        spacing: 5px;
+
+        HorizontalLayout {
+            spacing: 5px;
+            Button { text: "Select Directory..."; clicked => { select_directory(); } }
+            search_input := LineEdit { placeholder-text: "Search..."; edited(text) => { search(text); } }
+        }
+
+       search_list_view := ListView {
+            for file[i] in search_results : Text {
+                text: "Path: \{file.path}, Size: \{file.size}";
+                touch-area := TouchArea {
+                    clicked => {
+                        file_selected(i);
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            background: #f0f0f0;
+            Text {
+                text: selected_file_details;
+            }
+        }
+    }
+}
