@@ -1,0 +1,4 @@
+# Ignore build artifacts and caches
+target/
+Cargo.lock
+.DS_Store
