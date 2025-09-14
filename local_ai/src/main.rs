@@ -30,13 +30,20 @@ fn main() -> Result<()> {
 
     println!("Loading model weights...");
     let config_filename = repo.get("config.json")?;
-    let config: model::LlamaConfig = serde_json::from_slice(&std::fs::read(config_filename)?)?;
+    let llama_config: model::LlamaConfig =
+        serde_json::from_slice(&std::fs::read(config_filename)?)?;
+    let config = llama_config.into_config(false); // Convert to the internal Config
+
     let model_filename = repo.get("model.safetensors")?;
     let vb = unsafe {
-        candle_nn::VarBuilder::from_mmaped_safetensors(&[model_filename], config.dtype, &device)?
+        candle_nn::VarBuilder::from_mmaped_safetensors(
+            &[model_filename],
+            candle_core::DType::F16,
+            &device,
+        )?
     };
     let mut model = model::Llama::load(vb, &config)?;
-    let mut cache = model::Cache::new(true, config.dtype, &config, &device)?;
+    let mut cache = model::Cache::new(true, candle_core::DType::F16, &config, &device)?;
     println!("Model loaded successfully.");
 
     // --- 3. Inference Loop ---
