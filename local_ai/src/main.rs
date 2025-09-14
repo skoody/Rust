@@ -1,7 +1,7 @@
 use std::io::{self, Write};
 use std::process::Command;
 use std::env;
-use llm::Model; // Trait needed for model.start_session()
+use llm::{Model, InferenceResponse, InferenceFeedback}; // Correctly import all necessary types
 
 mod finetune;
 mod gui;
@@ -38,7 +38,7 @@ fn run_cli() {
     let model_path = "models/dolphin-2.2.1-mistral-7b.Q5_K_M.gguf"; // Or your chosen model
     let model = match llm::load::<llm::models::Llama>(
         &std::path::Path::new(model_path),
-        Default::default(), // Use default parameters, TokenizerSource is not needed in this version
+        Default::default(),
         llm::load_progress_callback_stdout,
     ) {
         Ok(model) => model,
@@ -96,13 +96,13 @@ fn run_cli() {
             &mut Default::default(),
             |r| {
                 match r {
-                    llm::InferenceResponse::InferredToken(t) => {
+                    InferenceResponse::InferredToken(t) => {
                         print!("{t}");
                         std::io::stdout().flush().unwrap();
                         generated_response.push_str(&t);
-                        Ok(llm::InferenceFeedback::Continue)
+                        Ok(InferenceFeedback::Continue)
                     },
-                    _ => Ok(llm::InferenceFeedback::Continue)
+                    _ => Ok(InferenceFeedback::Continue)
                 }
             },
         );
