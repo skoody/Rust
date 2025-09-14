@@ -1,6 +1,6 @@
 use anyhow::{Error as E, Result};
 use candle_core::{Device, Tensor};
-use candle_transformers::generation::{LogitsProcessor, Sampling};
+use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::llama as model;
 use hf_hub::{api::sync::Api, Repo, RepoType};
 use std::io::Write;
@@ -29,8 +29,9 @@ fn main() -> Result<()> {
     let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
 
     println!("Loading model weights...");
+    let config_filename = repo.get("config.json")?;
+    let config: model::LlamaConfig = serde_json::from_slice(&std::fs::read(config_filename)?)?;
     let model_filename = repo.get("model.safetensors")?;
-    let config = model::LlamaConfig::tiny_llama_1_1b_chat();
     let vb = unsafe {
         candle_nn::VarBuilder::from_mmaped_safetensors(&[model_filename], config.dtype, &device)?
     };
