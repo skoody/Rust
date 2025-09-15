@@ -1,61 +1,83 @@
-use anyhow::Result;
-use llama_cpp::{LlamaModel, LlamaParams, SessionParams, StandardSampler};
-use std::io::{self, Write};
+use anyhow::{Error as E, Result};
+use candle_core::{Device, Tensor, DType};
+use candle_transformers::generation::LogitsProcessor;
+use candle_transformers::models::llama as model;
+use hf_hub::{api::sync::Api, Repo, RepoType};
+use std::io::Write;
+use tokenizers::Tokenizer;
 
 fn main() -> Result<()> {
-    // --- 1. Load the Model ---
-    // IMPORTANT: Replace this with the actual path to your GGUF model file.
-    // For example: "/home/skoody/Documents/Models/dolphin-2.2.1-mistral-7b.Q5_K_M.gguf"
-    let model_path = "models/model.gguf"; // A placeholder path
-    println!("Attempting to load model from: {}", model_path);
-    println!("Please ensure you have a model file at this location or update the path.");
+    // --- 1. Setup ---
+    // This will select the GPU if available (CUDA/Metal), otherwise CPU.
+    // For AMD ROCm, manual setup is required when compiling.
+    // For now, this will likely default to CPU on your system.
+    let device = Device::cuda_if_available(0)?;
+    println!("Using device: {:?}", device);
 
-    let model = match LlamaModel::load_from_file(model_path, LlamaParams::default()) {
-        Ok(model) => model,
-        Err(e) => {
-            anyhow::bail!("Failed to load model from '{}'. Error: {}. Please check the path and ensure the model file is valid.", model_path, e);
-        }
+    // --- 2. Load Model and Tokenizer ---
+    let api = Api::new()?;
+    let repo = api.repo(Repo::new(
+        "TinyLlama/TinyLlama-1.1B-Chat-v1.0".to_string(),
+        RepoType::Model,
+    ));
+
+    println!("Loading tokenizer...");
+    let tokenizer_filename = repo.get("tokenizer.json")?;
+    let tokenizer = Tokenizer::from_file(tokenizer_filename).map_err(E::msg)?;
+
+    println!("Loading model weights...");
+    let config_filename = repo.get("config.json")?;
+    let llama_config: model::LlamaConfig =
+        serde_json::from_slice(&std::fs::read(config_filename)?)?;
+    let config = llama_config.into_config(false); // Convert to the internal Config
+
+    let model_filenames = vec![repo.get("model.safetensors")?];
+    let vb = unsafe {
+        candle_nn::VarBuilder::from_mmaped_safetensors(&model_filenames, DType::F16, &device)?
     };
+    let mut model = model::Llama::load(vb, &config)?;
+    let mut cache = model::Cache::new(true, DType::F16, &config, &device)?;
     println!("Model loaded successfully.");
 
-    // --- 2. Create a Session ---
-    // A session holds the context for a conversation.
-    let mut ctx = model.create_session(SessionParams::default())?;
+    // --- 3. Inference Loop ---
+    let mut logits_processor = LogitsProcessor::new(299792458, Some(0.8), None);
 
-    println!("\n--- AI Assistant Ready ---");
-    println!("Enter a prompt or type 'exit' to quit.");
-
-    // --- 3. Interaction Loop ---
     loop {
         print!("\n> ");
-        io::stdout().flush()?;
+        std::io::stdout().flush()?;
         let mut prompt = String::new();
-        io::stdin().read_line(&mut prompt)?;
+        std::io::stdin().read_line(&mut prompt)?;
 
-        let prompt_trimmed = prompt.trim();
-        if prompt_trimmed.is_empty() {
-            continue;
-        }
-        if prompt_trimmed.eq_ignore_ascii_case("exit") || prompt_trimmed.eq_ignore_ascii_case("quit") {
+        if prompt.trim().eq_ignore_ascii_case("exit") || prompt.trim().eq_ignore_ascii_case("quit") {
             break;
         }
 
-        // Add the user's prompt to the context.
-        // The `\n` is important for some models to recognize the end of a prompt.
-        ctx.advance_context(prompt_trimmed)?;
-        ctx.advance_context("\n")?;
+        let mut tokens = tokenizer
+            .encode(prompt.as_str(), true)
+            .map_err(E::msg)?
+            .get_ids()
+            .to_vec();
 
-        // Generate the AI's response
-        let mut completions =
-            ctx.start_completing_with(StandardSampler::default(), 1024);
+        println!("\n[AI Response]");
+        let eos_token = *tokenizer.get_vocab(true).get("</s>").unwrap();
 
-        print!("[AI Response]: ");
-        io::stdout().flush()?;
+        for index in 0..1000 { // Generate up to 1000 tokens
+            let context_size = if index > 0 { 1 } else { tokens.len() };
+            let start_pos = tokens.len().saturating_sub(context_size);
+            let input = Tensor::new(&tokens[start_pos..], &device)?.unsqueeze(0)?;
+            let logits = model.forward(&input, start_pos, &mut cache)?;
+            let logits = logits.squeeze(0)?.to_dtype(DType::F32)?;
 
-        // Stream the tokens as they are generated.
-        for completion in completions.into_strings() {
-            print!("{}", completion);
-            let _ = io::stdout().flush();
+            let next_token = logits_processor.sample(&logits)?;
+            tokens.push(next_token);
+
+            if next_token == eos_token {
+                break;
+            }
+
+            let token_str = tokenizer.decode(&[next_token], true).map_err(E::msg)?;
+            print!("{}", token_str);
+            std::io::stdout().flush()?;
         }
     }
 
