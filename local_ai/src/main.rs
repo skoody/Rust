@@ -8,12 +8,8 @@ use tokenizers::Tokenizer;
 
 fn main() -> Result<()> {
     // --- 1. Setup ---
-    // The `rocm` feature is required to enable AMD GPU support.
-    // You must compile with `cargo run --features rocm`
-    #[cfg(feature = "rocm")]
-    let device = Device::new_rocm(0)?;
-    #[cfg(not(feature = "rocm"))]
-    let device = Device::cuda_if_available(0)?; // Falls back to CUDA or CPU
+    // This will select the GPU if available (e.g. CUDA), otherwise CPU.
+    let device = Device::cuda_if_available(0)?;
     println!("Using device: {:?}", device);
 
     // --- 2. Load Model and Tokenizer ---
